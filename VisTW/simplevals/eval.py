@@ -118,7 +118,8 @@ def eval_dataset(llm, subject_name, mode="image", text_ver=False, src="exam"):
         else:
             dataset = load_dataset('VisTai/vistw-mcq', subject_name, split='test')
             logging_file = f"{subject_name}_cot-{mode}_{str(llm)}.jsonl"
-
+            
+    os.makedirs('execution_results', exist_ok=True)
     stats = load_existing_entries(logging_file)
     full_path = os.path.join('execution_results', logging_file)
 
