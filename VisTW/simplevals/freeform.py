@@ -16,7 +16,7 @@ def load_existing_entries(logging_file, log_dir="freeform_log"):
 
     stats = {'total': 0, 'existing_entries': {}}
     if os.path.exists(full_path):
-        with open(full_path, 'r') as f:
+        with open(full_path, 'r', encoding='utf-8') as f:
             for line in f:
                 entry = json.loads(line)
                 if 'question_id' in entry:
@@ -95,12 +95,12 @@ def eval_dataset(llm, mode="image", text_ver=False, system_prompt='', resize=Non
     stats = load_existing_entries(logging_file, log_dir=log_dir)
     full_path = os.path.join(log_dir, logging_file)
     
-    with open(full_path, 'a') as log_file:
+    with open(full_path, 'a', encoding='utf-8') as log_file:
         for idx, row in enumerate(tqdm(dataset, dynamic_ncols=True, initial=stats['total'])):
             if row['thread_id'] in stats['existing_entries']:
                 continue
             log_entry = process_question(row, llm, mode, stats, system_prompt=system_prompt, resize=resize)
-            json.dump(log_entry, log_file)
+            json.dump(log_entry, log_file, ensure_ascii=False)
             log_file.write('\n')
             log_file.flush()
 
