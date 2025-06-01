@@ -1,10 +1,11 @@
 # Common Voice 16
 
-This benchmark contains ASR (Automatic Speech Recognition) tasks for the Traditional Chinese subset, test split of the Common Voice 16 dataset.
+VisTW consists of two subsets: (1) MCQ - a collection of multiple-choice questions from 21 academic subjects  and (2) Dialogue - real-life images with corresponding questions requiring understanding of Traditional Chinese and Taiwan-specific cultural context.
 
-Repository: https://huggingface.co/datasets/mozilla-foundation/common_voice_16_0
+Paper: [VisTW: Benchmarking Vision-Language Models for Traditional Chinese in Taiwan](https://arxiv.org/abs/2503.10427) 
 
-You can run `load_cv16.py` to load the dataset.
+Repository: https://github.com/TMMMU-Benchmark/evaluation
+
 
 ## Installation
 
@@ -16,96 +17,64 @@ source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
-For `microsoft/Phi-4-multimodal-instruct` **ONLY**, please install flash attention and downgrade transformers:
-```bash
-uv pip uninstall transformers
-uv pip install transformers==4.48.2
-uv pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.7.4.post1/flash_attn-2.7.4.post1+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
-``` 
-
 ## Baselines
 
-- `Qwen2.5-Omni-7B`: `Qwen/Qwen2.5-Omni-7B`
-- `Qwen2-Audio-7B-IT`: `Qwen/Qwen2-Audio-7B-Instruct`
-- `Qwen-Audio-Chat`: `Qwen/Qwen-Audio-Chat`
-- `Phi-4-MM`: `microsoft/Phi-4-multimodal-instruct`
+- `Llama3.2-11B-Vision-IT`: `meta-llama/Llama-3.2-11B-Vision-Instruct`
+- `Gemma3-12B-IT`: `google/gemma-3-12b-it`
+- `Gemma3-27B-IT`: `google/gemma-3-27b-it`
+
 
 ## Usage
 
-### Part 1: Responses Generation
-
-For models not listed above, please follow the format of `template.py` and check the official repository of your model to implement the `inference` function.
-
-The prompts are adapted from examples in the [Qwen 2.5 Omni cookbook](https://github.com/QwenLM/Qwen2.5-Omni/blob/main/cookbooks/universal_audio_understanding.ipynb).
-
-Results will be saved to `./results/cv16_<your_model_name_for_file>.json`.
-
-#### Qwen 2.5 Omni
-
-We use the `transformers` library to run Qwen 2.5 Omni.
- 
-Our implementation closely follows the [Qwen 2.5 Omni cookbook](https://github.com/QwenLM/Qwen2.5-Omni/blob/main/cookbooks/universal_audio_understanding.ipynb), with the logic implemented in `qwen2_5_omni.py`.
+### Part 1: Multiple-choice QA (MCQ)
 
 To run the inference:
 
 ```bash
-python qwen2_5_omni.py
+python -m simplevals.eval <model_id> \
+    --series <model_series> \
+    --datasets all \
+    --mode image
 ```
 
-#### Qwen Audio Chat
+The available `model_series` are:
+- `gemini`: Gemini series using Vertex AI API. Login to Vertex AI first to use this series.
+- `gemini_dev`: Gemini series using Gemini API key. Put your Gemini API key in the `GEMINI_API_KEY` environment variable to use this series.
+- `openai`: OpenAI series using OpenAI API key. Put your OpenAI API key in the `OAI_KEY` environment variable to use this series.
+- `anthropic`: Anthropic series using Anthropic API key. Put your Anthropic API key in the `ANTHROPIC_KEY` environment variable to use this series.
+- `qwen`: Qwen vision series by Alibaba Cloud.
+- `internvl2`: InternVL2 series by OpenGVLab.
+- `mllama`: Llama vision series by Meta and other models that use `MllamaForConditionalGeneration` from the `transformers` library.
+- `gemma3`: Gemma3 and other models that use `Gemma3ForConditionalGeneration` from the `transformers` library.
+- `llava`: LLaVA by Microsoft and other models that use `LlavaForConditionalGeneration` from the `transformers` library.
+- `ds`: DeepSeek series by DeepSeek.
+- `ds2`: DeepSeek 2 series by DeepSeek.
+- `thudm`: CogVLM2 series by THUDM.
+- `kimi`: Kimi series by Moonshot AI.
+- `breeze2`: Breeze2 series by MediaTek.
+- `groq`: Online models using Groq API. Put your Groq API key in the `GROQ_API_KEY` environment variable to use this series.
+- `together`: Online models using Together API. Put your Together API key in the `TOGETHER_API_KEY` environment variable to use this series.
 
-We use the `transformers` library to run Qwen Audio Chat.
-
-Our implementation follows the [Qwen-Audio-Chat Official Huggingface Repo](https://huggingface.co/Qwen/Qwen-Audio-Chat), with the logic implemented in `qwen_audio_chat.py`.
-
-To run the inference:
+### Part 2: Free-form QA (Dialogue)
+First, run the inference:
 
 ```bash
-python qwen_audio_chat.py
+python -m simplevals.freeform <model_id> \
+    --series <model_series> \
+    --mode image
 ```
 
-#### Qwen 2 Audio Instruct
-
-We use the `transformers` library to run Qwen 2 Audio Instruct.
-
-Our implementation follows the [Qwen2-Audio-7B-Instruct Official Huggingface Repo](https://huggingface.co/Qwen/Qwen2-Audio-7B-Instruct), with the logic implemented in `qwen2_audio_it.py`.
-
-To run the inference:
+Then, evaluate the results using Gemini:
 
 ```bash
-python qwen2_audio_it.py
+python -m simplevals.scoring \
+    --series gemini_dev \
+    --input_jsonl <your_inference_result>.jsonl \
 ```
-
-#### Phi 4 Multimodal Instruct
-
-We use the `transformers` library to run Phi 4 Multimodal Instruct. Note that the transformers version should be 4.48.2 for this model.
-
-Our implementation follows the [Phi-4-multimodal-instruct Official Huggingface Repo](https://huggingface.co/microsoft/Phi-4-multimodal-instruct), with the logic implemented in `phi4_mm_it.py`.
-
-To run the inference:
-
-```bash
-python phi4_mm_it.py
-```
-
-### Part 2: Calculate CER (Character Error Rate)
-
-In this part, two types of CER are calculated:
-- **Original CER**: CER with the cleaned responses.
-- **Force-S2T CER**: CER with the cleaned responses, **AND** all characters converted to traditional Chinese using the `OpenCC` package.
-
-To calculate these two CERs, run the following script:
-
-```bash
-python3 cer.py --input_json <your_inference_result>.json \
---reference <your_dataset>/metadata.csv
-```
-
-Please ensure the `file` column in your prediction file and metadata are aligned.
 
 ## Results
 
-| CER type   | Qwen2.5-Omni-7B | Qwen2-Audio-7B-IT | Qwen-Audio-Chat | Phi-4-MM |
-| ---------- | --------------- | ----------------- | --------------- | -------- |
-| Original   | 9.00%           | 23.01%            | 23.25%          | 33.89%   |
-| Force-S2T  | 5.97%           | 11.70%            | 10.43%          | 9.37%    |
+| CER type   | Llama3.2-11B-Vision-IT | Gemma3-12B-IT | Gemma3-27B-IT |
+| ---------- | ---------------------- | ------------- | ------------- |
+| MCQ        | 29.47%                 | 40.47%        | 43.12%        |
+| Dialogue   | 2.89                   | 4.26          | 4.60          |
