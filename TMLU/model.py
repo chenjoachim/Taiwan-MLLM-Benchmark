@@ -52,16 +52,23 @@ class HFLM_vLLM(LM):
         revision=None,
         dtype=None,
         cache_dir=None,
+        tokenizer_name=None
     ):
         super().__init__(max_tokens, temperature)
+        if tokenizer_name:
+            auto_tokenizer_name = tokenizer_name
+        else:
+            auto_tokenizer_name = model_name
         self.tokenizer = AutoTokenizer.from_pretrained(
-            model_name,
+            auto_tokenizer_name,
             revision=revision,
             cache_dir=cache_dir,
             trust_remote_code=True,
         )
+        print(dtype)
         self.llm = LLM(
             model=model_name,
+            tokenizer=auto_tokenizer_name,
             tensor_parallel_size=tensor_parallel_size,
             max_num_batched_tokens=8192,
             max_model_len=8192,
@@ -69,6 +76,7 @@ class HFLM_vLLM(LM):
             revision=revision,
             dtype=dtype,
             download_dir=cache_dir,
+            device="cuda",
             trust_remote_code=True,
         )
         generation_config = GenerationConfig.from_pretrained(

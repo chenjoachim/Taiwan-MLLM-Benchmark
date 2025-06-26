@@ -144,6 +144,9 @@ def parse_args():
         action='store_true',
         help='Prevent any prefill (only used in vllm)'
     )
+    parser.add_argument(
+        '--tokenizer', type=str, default=None, help='Custom tokenizer'
+    )
     return parser.parse_args()
 
 
@@ -266,6 +269,7 @@ if __name__ == '__main__':
             revision=args.revision,
             dtype=args.dtype,
             cache_dir=args.cache_dir,
+            tokenizer_name=args.tokenizer
         )
 
     if args.subsets == 'ALL':
