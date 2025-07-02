@@ -147,6 +147,17 @@ def parse_args():
     parser.add_argument(
         '--tokenizer', type=str, default=None, help='Custom tokenizer'
     )
+    parser.add_argument(
+        '--flash_attention',
+        action='store_true',
+        help='Use flash attention'
+    )
+    parser.add_argument(
+        '--batch_size',
+        type=int,
+        default=1,
+        help='Batch size for HF backend inference (default: 1)'
+    )
     return parser.parse_args()
 
 
@@ -258,6 +269,8 @@ if __name__ == '__main__':
             revision=args.revision,
             dtype=args.dtype,
             cache_dir=args.cache_dir,
+            flash_attn=args.flash_attention,
+            batch_size=args.batch_size
         )
     else:
         model = HFLM_vLLM(

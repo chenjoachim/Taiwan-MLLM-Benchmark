@@ -31,6 +31,14 @@ def _get_dtype(
     return _torch_dtype
 
 
+def log_memory_usage():
+    """Simple memory logging utility"""
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated() / (1024**3)  # GB
+        cached = torch.cuda.memory_reserved() / (1024**3)  # GB
+        print(f"GPU Memory - Allocated: {allocated:.1f}GB, Cached: {cached:.1f}GB", flush=True)
+
+
 class LM(abc.ABC):
     def __init__(self, max_tokens, temperature):
         self.max_tokens = max_tokens
@@ -139,8 +147,11 @@ class HFLM_transformers(LM):
         revision=None,
         dtype=None,
         cache_dir=None,
+        flash_attn=False,
+        batch_size=1
     ):
         super().__init__(max_tokens, temperature)
+        self.batch_size = batch_size
         self.config = AutoConfig.from_pretrained(
             model_name,
             revision=revision,
@@ -153,6 +164,10 @@ class HFLM_transformers(LM):
             cache_dir=cache_dir,
             trust_remote_code=True,
         )
+        
+        # Set padding token for batch processing
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
         print(_get_dtype(dtype, self.config))
         self.llm = AutoModelForCausalLM.from_pretrained(
             model_name,
@@ -161,7 +176,8 @@ class HFLM_transformers(LM):
             device_map="cuda",  # Changed from "cuda" to "auto"
             cache_dir=cache_dir,
             trust_remote_code=True,
-            low_cpu_mem_usage=True
+            low_cpu_mem_usage=True,
+            attn_implementation='flash_attention_2' if flash_attn else 'sdpa',
         )
         
         # Fixed the attribute access and added fallback logic
@@ -197,54 +213,92 @@ class HFLM_transformers(LM):
         return context_enc, conti_enc
 
     def generate(self, dataset, prefill='正確答案：(', apply_chat_template=True):
-        print("START MAPPING", flush=True)
-        print("FINISHED MAPPING", flush=True)
+        print("START BATCH INFERENCE", flush=True)
+        log_memory_usage()
         
+        # Prepare all prompts
+        prompts = []
+        for example in dataset:
+            if apply_chat_template:
+                prompt = self.tokenizer.apply_chat_template(
+                    [{'role': 'user', 'content': example['prompt']}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                ) + prefill
+            else:
+                prompt = example['prompt'] + prefill
+            prompts.append(prompt)
+        
+        print(f"Processing {len(prompts)} prompts with batch size {self.batch_size}", flush=True)
+        
+        answers = []
         with torch.no_grad():
-            answers = []
-            for example in tqdm(dataset):
-                if apply_chat_template:
-                    print("INFERENCING", flush=True)
-                    prompt = self.tokenizer.apply_chat_template(
-                        [{'role': 'user', 'content': example['prompt']}],
-                        tokenize=False,
-                        add_generation_prompt=True,
-                    ) + prefill
-                else:
-                    prompt = example['prompt'] + prefill
+            # Process in batches
+            for i in tqdm(range(0, len(prompts), self.batch_size), desc="Batch inference"):
+                batch_prompts = prompts[i:i + self.batch_size]
                 
-                # Fixed tokenizer call with proper parameters
+                # Tokenize batch with left padding for generation
                 inputs = self.tokenizer(
-                    prompt, 
-                    return_tensors='pt', 
+                    batch_prompts,
+                    return_tensors='pt',
+                    padding='longest',  # Use longest for efficiency
+                    truncation=True,
                     max_length=self.model_max_length,
-                    padding="max_length",
-                    truncation=True
+                    pad_to_multiple_of=8,  # For efficiency on modern GPUs
+                    return_attention_mask=True
                 ).to("cuda")
                 
-                # Generate response with simplified parameters
-                outputs = self.llm.generate(
-                    **inputs,
-                    max_new_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    do_sample=self.temperature > 0,
-                    use_cache=True, # For dynamo issues
-                    # Removed cache_implementation="static" as it may cause issues
-                    pad_token_id=self.tokenizer.eos_token_id  # Added to prevent warnings
-                )
+                # Store input lengths for each sample in the batch
+                input_lengths = []
+                for j in range(len(batch_prompts)):
+                    # Count non-padding tokens
+                    attention_mask = inputs.attention_mask[j]
+                    input_length = attention_mask.sum().item()
+                    input_lengths.append(input_length)
                 
-                # Decode and extract answer
-                generated_text = self.tokenizer.decode(
-                    outputs[0][inputs.input_ids.shape[1]:], 
-                    skip_special_tokens=True
-                )
-                answers.append(generated_text)
+                # Generate for batch
+                with torch.inference_mode():
+                    outputs = self.llm.generate(
+                        input_ids=inputs.input_ids,
+                        attention_mask=inputs.attention_mask,
+                        max_new_tokens=self.max_tokens,
+                        temperature=self.temperature,
+                        do_sample=self.temperature > 0,
+                        use_cache=True,
+                        cache_implementation='static',
+                        disable_compile=True,
+                        pad_token_id=self.tokenizer.eos_token_id,
+                    )
                 
-                # Clean up
+                # Decode batch outputs
+                for j, output in enumerate(outputs):
+                    # Extract only the generated part (after the input)
+                    input_length = input_lengths[j]
+                    generated_ids = output[input_length:]
+                    generated_text = self.tokenizer.decode(
+                        generated_ids, 
+                        skip_special_tokens=True
+                    )
+                    answers.append(generated_text)
+                
+                # Clean up batch
                 del inputs, outputs
-                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 
+                # Log memory usage periodically
+                if (i // self.batch_size) % 10 == 0:
+                    log_memory_usage()
+                
+        print("FINISH BATCH INFERENCE", flush=True)
+        log_memory_usage()
         return answers
+
+    def get_batch_size(self):
+        return self.batch_size
+
+    def set_batch_size(self, batch_size):
+        self.batch_size = batch_size
 
 class OpenAI_LM(LM):
     def __init__(
