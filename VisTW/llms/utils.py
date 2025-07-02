@@ -58,6 +58,9 @@ def get_llm(model_name: str, series: str = None):
     elif series == 'hf_model':
         from llms.hf_model import HFModel
         return HFModel(model_name)
+    elif series == 'hf_reasoning':
+        from llms.hf_reasoning import HfReasoning
+        return HfReasoning(model_name)
     elif series == 'qwen':
         from llms.qwen_vl import QwenVL
         return QwenVL(model_name)
